@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Serverless event-driven ingestion: S3 PUT triggers a Lambda that validates
+  and writes order events into DynamoDB, quarantining anything invalid.
+  Deploy with: sam deploy --guided
+
+Globals:
+  Function:
+    Timeout: 15
+    MemorySize: 256
+    Runtime: python3.12
+
+Resources:
+  EventsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "de-intern-events-${AWS::AccountId}"
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: "s3:ObjectCreated:*"
+            Function: !GetAtt IngestFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: "incoming/"
+
+  OrderEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: order-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: by_customer
+          KeySchema:
+            - AttributeName: customer_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: de-intern-event-ingest
+      CodeUri: ../lambda/
+      Handler: handler.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref OrderEventsTable
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub "de-intern-events-${AWS::AccountId}"
+        - S3CrudPolicy:
+            BucketName: !Sub "de-intern-events-${AWS::AccountId}"
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrderEventsTable
+
+  IngestFunctionS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IngestFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub "arn:aws:s3:::de-intern-events-${AWS::AccountId}"
+
+Outputs:
+  BucketName:
+    Value: !Ref EventsBucket
+  TableName:
+    Value: !Ref OrderEventsTable
+  FunctionName:
+    Value: !Ref IngestFunction

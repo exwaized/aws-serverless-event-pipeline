@@ -1,0 +1,7 @@
+{
+  "event_id": "evt-0003",
+  "event_type": "order_placed",
+  "customer_id": "C00099",
+  "amount": -15.0,
+  "occurred_at": "2026-01-15T12:00:00Z"
+}
